@@ -87,6 +87,7 @@ globals [
   nDownshocked        ; number of owners putting their house for sale because their income has dropped
   nDemolished         ; number of houses demolished in this step
   medianPriceOfHousesForSale ; guess!
+  tick-timer          ; time (in seconds) for one step (tick)
 ]
 
 breed [houses house ]      ; a house, may be occupied and may be for sale
@@ -318,29 +319,33 @@ to build-house     ;; observer procedure
                    ; note how long this house will last before it falls down and is demolished
     set end-of-life ticks + int random-exponential ( HouseMeanLifetime * TicksPerYear )
 
-
-    ;; TODO what is the point of this?
-    ;;; Set the area for the house to be in
-    ifelse [pxcor] of patch-here < 0[
-      ifelse [pycor] of patch-here < 0[
-        set area 1
-        set color red
-      ][
-        set area 2
-        set color green
-      ]
-    ]
-    [
-      ifelse [pycor] of patch-here < 0[
-        set area 3
-        set color blue
-      ][
-        set area 4
-        set color yellow
-      ]
-    ]
+    set-quadrant
   ]
 
+end
+
+to set-quadrant         ;; house procedure
+                        ;; assign a colour and set the area for this house
+                        ;; according to which qudrant of the town it is in
+
+  ifelse [pxcor] of patch-here < 0[
+    ifelse [pycor] of patch-here < 0[
+      set area 1
+      set color red
+    ][
+      set area 2
+      set color green
+    ]
+  ]
+  [
+    ifelse [pycor] of patch-here < 0[
+      set area 3
+      set color blue
+    ][
+      set area 4
+      set color yellow
+    ]
+  ]
 end
 
 to put-on-market        ;; house procedure
@@ -438,6 +443,7 @@ end
 
 to step
   ;;  each time step...
+  reset-timer
 
   let n-owners count owners
 
@@ -643,6 +649,7 @@ to step
       set repayment 0
     ]
   ]
+  set tick-timer timer
 
 end ; of step
 
@@ -1942,10 +1949,21 @@ TEXTBOX
 593
 1535
 640
-Distribute realtors by area
+Distribute realtors by quadrant
 11
 0.0
 1
+
+MONITOR
+1565
+705
+1697
+750
+Time per tick (secs)
+tick-timer
+5
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
