@@ -1,14 +1,84 @@
+extensions [ csv ]
+;extensions [profiler]
 ;;;
 ;;; PwC Housing Market model
 ;;;
 ;;; written by Nigel Gilbert, n.gilbert@surrey.ac.uk
 ;;;
+;;; Disclaimer
+;;; This model has been prepared for general guidance on matters of interest only, and
+;;; does not constitute professional advice.  The results are purely illustrative. You
+;;; should not act upon any results from this model without obtaining specific professional
+;;; advice.  No representation or warranty (express or implied) is given as to the accuracy
+;;; or completeness of the model, and, to the extent permitted by law, PricewaterhouseCoopers,
+;;; its members, employees and agents accept no liability, and disclaim all responsibility,
+;;; for the consequences of you or anyone else acting, or refraining to act, in reliance on
+;;; the model or for any decision based on it.
+;;;
+;;; This Housing Market model was developed by Nigel Gilbert with the assistance of John Hawksworth
+;;;   and Paul Sweeney of PricewaterhouseCoopers and is licensed under a
+;;;  Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License:
+;;;  <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="http://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png" /></a><br /><span xmlns:dct="http://purl.org/dc/terms/" property="dct:title">Housing Market model</span> by <a xmlns:cc="http://creativecommons.org/ns#" href="http://cress.soc.surrey.ac.uk/housingmarket/ukhm.html" property="cc:attributionName" rel="cc:attributionURL">Nigel Gilbert</a> is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/">Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License</a>.
+;;;
+;;; To refer to this model in academic literature, cite:
+;;; Gilbert, N, Hawksworth, J C, and Sweeney, P (2008) 'An Agent-based Model of the UK
+;;;   Housing Market'.  University of Surrey http://cress.soc.surrey.ac.uk/housingmarket/ukhm.html
+;;;
+;;;  version 0    NG 18 October 2007
+;;;  version 0.1  NG 09 November 2007
+;;;  version 0.2  NG 17 November 2007
+;;;  version 0.3  NG 23 November 2007 (bug: new entrants with zero mortgage)
+;;;  version 0.4  NG 08 December 2007 (bug: movers not recorded as being in new house;
+;;;                                    house prices reduced after no sale; purchasers
+;;;                                    only have upper bound limiting offer;
+;;;                                    entrants exit after a period if they can't find
+;;;                                    a house; realtors add a percentage on to the
+;;;                                    average price of local houses in forming their
+;;;                                    valuation
+;;;  version 0.5  NG 02 January 2008  New processes for realtor valuations and for
+;;;                                    making offers
+;;;  version 0.6  NG 26 January 2008  Added affordability, interest rate, house
+;;;                                    construction, sliders and code
+;;;  version 0.61 NG 11 February 2008 Added demolish proc to allow houses to die
+;;;  version 0.72 NG 24 March 2008    Redid house valuation to allow for quality
+;;;  version 0.8  JH, NG 4 April 2008 Adjusted initial parameters for more realistic
+;;;                                    behaviour
+;;;               NG 5  April 2008    Added gamma distribution for income, and income
+;;;                                    plot
+;;;  version 0.9  NG 17 April 2008    Added gini coefficient plot, changed display icons
+;;;  version 0.91 NG 18 April 2008    Added mortgage interest/income plot
+;;;  version 9.2  NG 19 April 2008    Added time on market plot, v. cheap houses get demolished
+;;;  version 10.2 NG 26 May 2008      Added gains from investment, re-did paint houses to
+;;;                                    use quantiles,
+;;;                                    re-did clustering, made sure realtors did not
+;;;                                    over-value
+;;;  version 10.4 NG 22 Jun 2008      Added fake realtor records at setup.  Added correct
+;;;                                    mortgage interest calculations,
+;;;                                    inflation, slider for ticks per year
+;;;  version 1.1  NG 22 Jun 2008      Up and down shocks now defined in terms of
+;;;                                    Affordability, rather than hardwired numbers
+;;;                                    adjusted initial valuations to value houses for
+;;;                                    sale at start better
+;;;  version 1.2   NG 17 Jul 2008     Dealt with -ve equity, repayments > income, and
+;;;                                    further corrections to handling of mortgages.
+;;;                                    General tidy up.  This is the version used for the
+;;;                                    ESSA paper
+;;;  version 1.3  NG 5 Sept 2008       1st time buyers get fixed capital
+;;;  version 1.4  NG 6 Sept 2008       Added initial savings slider and disclaimer
+;;;  version 1.5  NG 20 Jun 2011       Upgraded to work with NetLogo 1.4.3
+;;;  version 1.6  NG 21 Dec 2013       Upgraded to NetLogo 5.0.4 and open sourced under a Creative Commons licence
+;;;  version 1.61 NG 24 Jan 2013       Corrected bug introduced in upgrading to NL 5.0.4
+;;;  version 1.62 NG  7 Oct 2021       Saved as a NetLogo 6.2.2 model
+;;;  version 1.63 NG  7 Oct 2021       Optimisations to make it run faster
+;;;  version 1.66 NG 13 Apr 2023       Guard code to stop crashes on extreme values
+
+;;   version 1.66-dev-02 RC Apr 2023      Save settings and data
 
 globals [
   scenario            ; to illustrate various step changes
   ;; these could become sliders
   initialVacancyRate  ; proportion of empty houses at start
-  ;nRealtors           ; number of realtors
+  nRealtors           ; number of realtors
   min-price-fraction  ; if a house price falls below this fraction of the median price, it is demolished
 
   ; globally accessible variables (mainly here as globals so that they can be plotted)
@@ -18,6 +88,10 @@ globals [
   nDownshocked        ; number of owners putting their house for sale because their income has dropped
   nDemolished         ; number of houses demolished in this step
   medianPriceOfHousesForSale ; guess!
+  stepTimer           ; time in seconds for one step (tick)
+
+  ;;; ric additions
+  id-counter
   ]
 
 breed [houses house ]      ; a house, may be occupied and may be for sale
@@ -36,7 +110,9 @@ houses-own [
   offered-to          ; which owner has already made an offer for this house
   offer-date          ; date of the offer (in ticks)
   end-of-life         ; time step when this house will be demolished
-  area                ; the area where the hous is situated
+
+  ;; ric additions
+  id
   ]
 
 owners-own [
@@ -49,7 +125,9 @@ owners-own [
   made-offer-on       ; house that this owner wants to buy
   homeless            ; count of the number of periods that this owner has been
                       ;  without a house
-  house-area
+
+  ;; ric additions
+  id
   ]
 
 realtors-own [
@@ -62,31 +140,103 @@ records-own [         ; object holding a realtor's record of a transaction
   the-house           ; the house that was sold
   selling-price       ; the selling price
   date                ; the date of the transaction (in ticks)
-  the-area            ; area of the house
   ]
 
+to-report housedata
+  report word sale-price ","
+end
+
+
+;;; output data
+
+
+to-report house-data
+  let str word id ","
+  if-else  my-owner =  nobody [
+    set str word str "None,"
+  ][
+      if-else my-owner != 0 [
+        set str word str word [id] of my-owner ","
+      ][
+        set str word str "None,"
+      ]
+  ]
+  set str word str word quality  ","           ; index of quality of this house relative to its neighbours
+  set str word str word for-sale?   ","        ; whether this house is currently for sale
+  set str word str word sale-price   ","       ; the price of this house (either now, or when last sold)
+  set str word str word date-for-sale  ","     ; when the house was put on the market
+  if-else  offered-to =  nobody [
+    set str word str "None,"
+  ][
+      if-else offered-to != 0 [
+        set str word str word [id] of my-owner ","
+      ][
+        set str word str "None,"
+      ]
+  ]
+  set str word str word offer-date  ","        ; date of the offer (in ticks)
+  set str word str word end-of-life   ","      ; time step when this house will be demolished
+  report str
+end
+
+to-report owner-data
+  let str word id ","            ; value of mortgage - reduces as it is paid off
+  set str word str word income ","              ; current income
+  set str word str word mortgage ","            ; value of mortgage - reduces as it is paid off
+  set str word str word capital ","              ; capital that I have accumulated from selling my house
+  set str word str word repayment ","            ; my mortgage repayment amount, at each tick
+  set str word str word date-of-purchase ","     ; when my-house was bought
+  set str word str word made-offer-on ","       ; house that this owner wants to buy
+  set str word str word homeless ","
+  if-else  my-house =  nobody [
+    set str word str "None"
+  ][
+      if-else my-house != 0 [
+        set str word str [id] of my-house
+      ][
+        set str word str "None"
+      ]
+  ]
+  report str
+end
 
 to setup
 
-  ;; (for this model to work with NetLogo's new plotting features,
-  ;; __clear-all-and-reset-ticks should be replaced with clear-all at
-  ;; the beginning of your setup procedure and reset-ticks at the end
-  ;; of the procedure.)
-  __clear-all-and-reset-ticks
+  clear-all
+  reset-ticks
 
-;; set scnario to illustrate the effect of step changes.  scenario can
+  set id-counter 0
+;;; file handeling
+  ;;; open new data file. If there is an old one delete it otherwise it will just add to the file
+  if log-data [
+    carefully [ file-delete owner-data-file ][print "owner file fail"]
+    carefully [ file-delete house-data-file ][print "house file fail"]
+  ]
+  ;; headers
+  file-open house-data-file
+  file-print "iteration,id,owner,quality,for-sale?,sale-price,date-for-sale,offered-to,offer-date,end-of-life"
+  closefile
+  file-open owner-data-file
+  file-print "iteration,id,income,mortgage,capital,repayment,date-of-purchase,made-offer-on,homeless,my-house"
+  closefile
+
+
+
+;; set scenario to illustrate the effect of step changes.  scenario can
 ;; be one of
 ;     if scenario = "ltv"  [ set MaxLoanToValue 60 ]
 ;     if scenario = "ratefall" [ set InterestRate 3 ]
 ;     if scenario = "influx" [ set EntryRate 10 ]
 ;     if scenario = "poorentrants" [ set MeanIncome 24000 ]
 ;     if scenario = "clusters", continue for 400 steps
+; or "none"
 
-  set scenario "ratefall"
+  set scenario "none"
+  if scenario != "none" [ print (list "Using Scenario: " scenario) ]
 
 ;; initialise globals
   set initialVacancyRate 0.05
-  ;set nRealtors 6
+  set nRealtors 6
   set maxHomelessPeriod 5
   set interestPerTick InterestRate / ( TicksPerYear * 100 )
   set min-price-fraction 0.1
@@ -101,13 +251,10 @@ to setup
   let direction random 360
   create-realtors nRealtors [
     set color yellow
-
-    ;;; group the relators
-    ifelse grouped = True [
-      setxy random max-pxcor random max-pycor
-    ][
-      setxy random-pxcor random-pycor
-    ]
+    ; distribute realtors in a rough circle
+    set heading direction
+    jump (max-pxcor - min-pxcor) / 4
+    set direction direction + 120 + random 30
     set size 3
     ; draw a circle to indicate this realtor's territory
     draw-circle RealtorTerritory
@@ -121,28 +268,29 @@ to setup
 
   set-default-shape owners "dot"
   let occupied-houses n-of ((1 - initialVacancyRate) * count houses) houses
-  ask occupied-houses [
-    set for-sale? false
-    let a-area area
-    hatch-owners 1 [
-      set color gray
-      set my-house myself
-      set house-area a-area
-      ask my-house [set my-owner myself ]
-      assign-income
-      ; if required, artificially impose an income (and therefore a house price) gradient
-      ;   on the distribution of house prices
-      if InitialGeography = "Gradient" [ set income income * ( xcor + ycor + 50) / 50 ]
-      ; set  mortgage to a multiple of my income
-      set mortgage income * Affordability / ( interestPerTick * ticksPerYear * 100 )
-      ; calculate value of the deposit for this house
-      let deposit mortgage * ( 100 /  MaxLoanToValue - 1 )
-      ; set value of house to the mortgage + deposit
-      ask my-house [ set sale-price [mortgage] of myself + [deposit] of myself ]
-      set repayment mortgage * interestPerTick /
-                 (1 - ( 1 + interestPerTick ) ^ ( - MortgageDuration * TicksPerYear ))
+  if any? occupied-houses [
+    ask occupied-houses [
+      set for-sale? false
+      hatch-owners 1 [
+        set id word "O-" id-counter
+        set id-counter id-counter + 1
+        set color gray
+        set my-house myself
+        ask my-house [set my-owner myself ]
+        assign-income
+        ; if required, artificially impose an income (and therefore a house price) gradient
+        ;   on the distribution of house prices
+        if InitialGeography = "Gradient" [ set income income * ( xcor + ycor + 50) / 50 ]
+        ; set  mortgage to a multiple of my income
+        set mortgage income * Affordability / ( interestPerTick * ticksPerYear * 100 )
+        ; calculate value of the deposit for this house
+        let deposit mortgage * ( 100 /  MaxLoanToValue - 1 )
+        ; set value of house to the mortgage + deposit
+        ask my-house [ set sale-price [mortgage] of myself + [deposit] of myself ]
+        set repayment mortgage * interestPerTick / (1 - ( 1 + interestPerTick ) ^ ( - MortgageDuration * TicksPerYear ))
       ]
     ]
+  ]
 
    ; value all empty houses according to average values of local occupied houses
    let median-price median [ sale-price ] of houses with [ sale-price > 0 ]
@@ -176,11 +324,9 @@ to setup
      ; something to base their step 0 valuations on, and specify an average level of
      ; buyer interest
      let the-record nobody
-     let a-area area
      hatch-records 1 [
        hide-turtle
        set the-house myself
-       set the-area  a-area
        set selling-price [ sale-price ] of myself
        set the-record self
        ]
@@ -194,6 +340,7 @@ to setup
 
    do-plots
 
+   reset-ticks
 
 end
 
@@ -217,18 +364,18 @@ end
 to build-house     ;; observer procedure
 ;; add a single house to the town, in a random location
   create-houses 1 [
+   set id word "H-" id-counter
+   set id-counter id-counter + 1
    ; house turtles are never displayed; instead the patch is used to show the
    ;  presence of a house
-    if showhouse = False [ hide-turtle ]  ;; temp hold
+   hide-turtle
    ; for speed, dump the house anywhere, check if there is already a house there,
    ;  and if so, move to an empty spot
-    set color  black
     move-to one-of patches
     if count houses-here > 1 [
       let empty-sites patches with [ not any? houses-here ]
       if any? empty-sites [ move-to one-of empty-sites ]
-      ]
-
+    ]
     ; assign to a realtor or realtors if in their territory
     set local-realtors realtors with [ distance myself < RealtorTerritory ]
     ; if no realtor, then choose nearest
@@ -236,28 +383,7 @@ to build-house     ;; observer procedure
     put-on-market  ; initially empty houses are for sale
     ; note how long this house will last before it falls down and is demolished
     set end-of-life ticks + int random-exponential ( HouseMeanLifetime * TicksPerYear )
-
-    ;;; Set the area for the house to be in
-    ifelse [pxcor] of patch-here < 0[
-      ifelse [pycor] of patch-here < 0[
-        set area 1
-        set color red
-      ][
-        set area 2
-        set color green
-      ]
     ]
-    [
-    ifelse [pycor] of patch-here < 0[
-        set area 3
-        set color blue
-      ][
-        set area 4
-        set color yellow
-      ]
-    ]
-  ]
-
 end
 
 to put-on-market        ;; house procedure
@@ -332,15 +458,15 @@ end
 
 to go
 ;; basic loop
-   if ticks > 1000 [ stop ]
-  if DoShock = True [
+   if ticks > 400 [ stop ]
+  ; make a parametr change at tick 200 if running a scenario
    if ticks = 200 [
+     if scenario != "none" [ print (list "Parameter change at tick 200 for " scenario " scenario") ]
      if scenario = "ltv"  [ set MaxLoanToValue 60 ]
      if scenario = "ratefall" [ set InterestRate 3 ]
      if scenario = "influx" [ set EntryRate 10 ]
      if scenario = "poorentrants" [ set MeanIncome 24000 ]
      ]
-  ]
   ; do one time step (a quarter of a year?)
   step
   ; stop if no owners or houses left
@@ -355,6 +481,7 @@ end
 to step
 ;;  each time step...
 
+  reset-timer
   let n-owners count owners
 
   ; add an exogenous cyclical interest rate, if required: varies around mean of
@@ -401,23 +528,30 @@ to step
    ]
 
   ; some owners put their houses on the market and leave town
-  ask n-of (ExitRate * n-owners / 100) owners with [ is-house? my-house ] [
-    ask my-house [
-      put-on-market
-      set my-owner nobody
+  if ExitRate > 0 [
+    ask n-of (ExitRate * n-owners / 100) owners with [ is-house? my-house ] [
+      ask my-house [
+        put-on-market
+        set my-owner nobody
       ]
-    die
+      die
     ]
+  ]
 
   ; some new owners arrive
-  create-owners EntryRate * n-owners / 100 [
-    set color gray
-    ; set initial income and savings
-    assign-income
-    ; give them an initial capital equal to the deposit for the house they could afford
-    ; new owners are not located anywhere yet
-    hide-turtle
+  if EntryRate > 0 [
+    create-owners EntryRate * n-owners / 100 [
+      set color gray
+      set id word "O-" id-counter
+      set id-counter id-counter + 1
+      set my-house 0
+      ; set initial income and savings
+      assign-income
+      ; give them an initial capital equal to the deposit for the house they could afford
+      ; new owners are not located anywhere yet
+      hide-turtle
     ]
+  ]
 
   ; note that those without houses are homeless for another period, and remove those who
   ; have given up waiting for a house
@@ -476,7 +610,7 @@ to step
     set medianPriceOfHousesForSale median [sale-price] of houses-for-sale
     ]
 
-  ;paint-houses
+  paint-houses
 
   ; buyers (new entrants and those wishing to sell) search for a suitable property to buy
 
@@ -540,10 +674,12 @@ to step
      set sale-price sale-price * (1 - PriceDropRate / 100 )
      ]
 
-  ; owners that have a mortgage have to pay interest and some capital
-  ; the mortgage is reduced by the amount of capital repayment
+  ; owners that have a mortgage have to pay interest and repay some capital
+  ; since we don't model household budgets,
+  ; add the interest due to the mortgage outstanding
+  ; and reduce the mortgage by the capital repayment
   ask owners with [ is-house? my-house and mortgage > 0 ] [
-    set mortgage mortgage - ( repayment - interestPerTick * mortgage )
+    set mortgage mortgage - repayment + interestPerTick * mortgage
     ; check if mortgage has now been fully repaid; if so cancel it
     if mortgage <= 0 [
       set mortgage 0
@@ -551,7 +687,13 @@ to step
       ]
     ]
 
-end
+  set stepTimer timer
+
+  ; Save data each step
+  if log-data [
+    savedata
+  ]
+end ; of to step
 
 to-report valuation [ property ]    ;; realtor procedure
  ;; A realtor values a property by looking in its records for sales
@@ -594,71 +736,80 @@ to-report valuation [ property ]    ;; realtor procedure
 end
 
 to make-offer [ houses-for-sale ]      ;; owner procedure
- ;;  Search for properties that:
- ;;    is for sale
- ;;    is not already under offer
- ;;    costs no more than my budget
- ;;    is not the house I am already occupying
- ;;  but look at only buyer-search-length number of properties
- ;;  and make an offer on the most expensive of these.
- ;;  My budget is the sum of:
- ;;   the value of the mortgage I can get on the new house = affordability * income / interest rate
- ;;   plus the (projected) sale price of my current house
- ;;   minus the amount I need to pay back to the lender for my current mortgage,
- ;;   plus the amount of accumulated capital I have
- ;;   minus any stamp duty payable
- ;;  But I must have a sufficiently large cash deposit available
- ;;  The realtor notes the interest shown in each of the houses in this subset
+  ;;  Search for properties that:
+  ;;    is for sale
+  ;;    is not already under offer
+  ;;    costs no more than my budget
+  ;;    is not the house I am already occupying
+  ;;  but look at only buyer-search-length number of properties
+  ;;  and make an offer on the most expensive of these.
+  ;;  But I must have a sufficiently large cash deposit available
+  ;;  The realtor notes the interest shown in each of the houses in this subset
 
-  let new-mortgage income * Affordability / ( interestPerTick * ticksPerYear * 100 )
-  let budget new-mortgage - stamp-duty-land-tax new-mortgage
-
-  let deposit capital
-  if is-house? my-house [ set deposit deposit + ([ sale-price ] of my-house - mortgage) ]
-
-  let upperbound budget + deposit
-  if MaxLoanToValue < 100 [
-    set upperbound min ( list (budget + deposit ) ( deposit / ( 1 - MaxLoanToValue / 100 )))
-    ]
+  ;; Consider houses costing less than or equal to my budget, but
+  ;; not stupidly less
+  let upperbound budget
 
   ; if I am in negative equity, I cannot afford to buy a house and
   ;  will have to remain where I am
   if upperbound < 0 [
     ask my-house [ set for-sale? false ]
     stop
-    ]
+  ]
 
   let lowerbound upperbound * 0.7
   let current-house my-house
-  let interesting-houses houses-for-sale with [
-                            not is-owner? offered-to and
-                            sale-price <= upperbound and
-                            sale-price > lowerbound and
-                            self != current-house ]
 
-  ; if there are more interesting houses than the buyer's search length,
-  ;   select that number at random
-  if count interesting-houses > BuyerSearchLength [
-    set interesting-houses n-of BuyerSearchLength interesting-houses
+  ;; find the most expensive house I can afford from BuyerSearchLength houses chosen
+  ;;  at random from all those on sale
+  let most-expensive lowerbound
+  let property nobody
+  repeat BuyerSearchLength [
+    let candidate one-of houses-for-sale
+    if not is-owner? [offered-to] of candidate and
+    [sale-price] of candidate <= upperbound and
+    [sale-price] of candidate > lowerbound and
+    candidate != current-house and
+    [sale-price] of candidate >= most-expensive [
+      set most-expensive [sale-price] of candidate
+      set property candidate
     ]
+  ]
 
-  if any? interesting-houses [
-    ;select the best that has not already had an offer on it
-    let property max-one-of interesting-houses [ sale-price ]
-    ; if I have found a suitable property, place an offer for it
-      if is-house? property [
-        ask property [
-          set offered-to myself
-          set offer-date ticks
-        ]
-        set made-offer-on property
-        ]
-     ]
+  ; if I have found a suitable property, place an offer for it
+  if is-house? property [
+    ask property [
+      set offered-to myself
+      set offer-date ticks
+    ]
+    set made-offer-on property
+  ]
+end
+
+to-report budget
+  ;;  My budget for buying a house is the sum of:
+ ;;   the value of the mortgage I can get on the new house = affordability * income / interest rate
+ ;;   plus the (projected) sale price of my current house
+ ;;   minus the amount I need to pay back to the lender for my current mortgage,
+ ;;   plus the amount of accumulated capital I have
+ ;;   minus any stamp duty payable
+
+  let new-mortgage income * Affordability / ( interestPerTick * ticksPerYear * 100 )
+  let mortgage-minus-tax new-mortgage - stamp-duty-land-tax new-mortgage
+
+  let deposit capital
+  if is-house? my-house [ set deposit deposit + ([ sale-price ] of my-house - mortgage) ]
+
+  let upperbound mortgage-minus-tax + deposit
+  if MaxLoanToValue < 100 [
+    set upperbound min ( list (mortgage-minus-tax + deposit ) ( deposit / ( 1 - MaxLoanToValue / 100 )))
+  ]
+  report upperbound
 end
 
 to-report stamp-duty-land-tax [ cost ]
-  ;; stamp duty land tax ('stamp duty') is 1% for sales over �150K, 3% over �250K, 4% over
-  ;;  �500K,  (see http://www.hmrc.gov.uk/so/rates/index.htm )
+  ;; stamp duty land tax ('stamp duty') is 1% for sales over £150K, 3% over £250K, 4% over
+  ;;  £500K,  (see http://www.hmrc.gov.uk/so/rates/index.htm )
   if StampDuty [
     if cost > 500000 [ report 0.04 * cost ]
     if cost > 250000 [ report 0.02 * cost ]
@@ -687,9 +838,6 @@ to move-house                            ;; owner procedure
  ;; then move the seller to their new house etc.
 
   let new-house made-offer-on
-  ask new-house[
-    set size 1
-  ]
   if not (is-house? new-house) [ stop ]
   let seller [ my-owner ] of new-house
   if is-owner? seller [
@@ -726,8 +874,6 @@ to move-house                            ;; owner procedure
   move-to new-house ; move owner icon on view
   set homeless 0
   set my-house new-house
-  set house-area [area] of new-house
-  ;;print house-area
   set date-of-purchase ticks
   ask new-house [
     set for-sale? false
@@ -740,7 +886,6 @@ to move-house                            ;; owner procedure
     set date ticks
     set the-house new-house
     set selling-price [sale-price] of new-house
-    set the-area [area] of new-house
     ask [ my-realtor ] of new-house [ file-record myself ]
     ]
   set moves moves + 1
@@ -789,15 +934,16 @@ to-report gini-index [ lst ]
   let sum-so-far 0
   let index 0
   let gini 0
-  if items > 0 [
-  repeat items [
-    set sum-so-far sum-so-far + item index sorted
-    set index index + 1
-    set gini  gini + (index / items) - (sum-so-far / total)
+  ifelse items > 0 [
+    repeat items [
+      set sum-so-far sum-so-far + item index sorted
+      set index index + 1
+      set gini  gini + (index / items) - (sum-so-far / total)
+    ]
+    ; only accurate if items is large
+    report 2 * (gini / items)
   ]
-  ; only accurate if items is large
-    report 2 * (gini / items)]
-  report 0
+  [report 0 ]
 end
 
 
@@ -807,7 +953,6 @@ to do-plots
 
   let houses-for-sale houses with [ for-sale?  and sale-price > 0 ]
   let houses-sold records
-
 
   set-current-plot "Homes"
   set-current-plot-pen "All houses"
@@ -860,27 +1005,13 @@ to do-plots
   plot medianSellingPriceOfHouses
 
 
-  set-current-plot "Gini index House"
-  set-current-plot-pen "area-BL"
-  if any? houses-sold [ plot gini-index [ selling-price ] of houses-sold with [the-area = 1] ]
-  set-current-plot-pen "area-TL"
-  if any? houses-sold [ plot gini-index [ selling-price ] of houses-sold with [the-area = 2] ]
-  set-current-plot-pen "area-BR"
-  if any? houses-sold [ plot gini-index [ selling-price ] of houses-sold with [the-area = 3] ]
-  set-current-plot-pen "area-TR"
-  if any? houses-sold [ plot gini-index [ selling-price ] of houses-sold with [the-area = 4] ]
+  set-current-plot "Gini index"
+  set-current-plot-pen "Prices"
+  if any? houses-sold [ plot gini-index [ selling-price ] of houses-sold ]
+  set-current-plot-pen "Incomes"
+  if any? owners [ plot gini-index [ income ] of owners ]
 
-  set-current-plot "Gini index Income"
-  set-current-plot-pen "Incomes-BL"
-  if any? owners [ plot gini-index [ income ] of owners with [ house-area = 1 ]]
-  set-current-plot-pen "Incomes-TL"
-  if any? owners [ plot gini-index [ income ] of owners with [ house-area = 2 ]]
-  set-current-plot-pen "Incomes-BL"
-  if any? owners [ plot gini-index [ income ] of owners with [ house-area = 3 ]]
-  set-current-plot-pen "Incomes-TL"
-  if any? owners [ plot gini-index [ income ] of owners with [ house-area = 4 ]]
-
-  if any? owners [
+  if any? owners with [ repayment > 0 ] [
     set-current-plot "Mortgage repayment / income"
     plot mean [ TicksPerYear * repayment / income ] of owners with [ repayment > 0 ]
     ]
@@ -912,7 +1043,7 @@ to do-plots
      ]
 end
 
-;; two procedures to enable large numbers of owners   be added to, or removed from the market
+;; two procedures to enable large numbers of owners to be added to, or removed from the market
 ;; for experimentation with the model
 ;;
 ;; to use, type into the command centre (for example):  make-owners 500
@@ -922,6 +1053,9 @@ to make-owners [ n ]
  ;; make some new owners arrive
   create-owners n [
     set color gray
+    set id word "O-" id-counter
+    set id-counter id-counter + 1
+    set my-house 0
     ; set initial income and savings
     assign-income
     ; new owners are not located anywhere yet
@@ -938,6 +1072,115 @@ to kill-owners [ n ]
       ]
     die
     ]
+end
+
+
+;;; Files
+
+to closefile
+  file-close
+end
+
+to savedata
+  file-open owner-data-file
+  ask owners[
+    let str word  ticks ","
+    set str word str owner-data
+    file-print str
+  ]
+  closefile
+  file-open house-data-file
+  ask houses[
+    let str word  ticks ","
+    set str word str house-data
+    file-print str
+  ]
+  closefile
+end
+
+to write-settings-to-file
+  carefully [ file-delete savefile ][]
+  file-open savefile
+  file-print word "Inflation," Inflation
+  file-print word "InterestRate," InterestRate
+  file-print word "TicksPerYear," TicksPerYear
+  file-print word "CycleStrength," CycleStrength
+  file-print word "Affordability,"Affordability
+  file-print word "Savings," Savings
+  file-print word "ExitRate," ExitRate
+  file-print word "EntryRate," EntryRate
+  file-print word "MeanIncome," MeanIncome
+  file-print word "Shocked," Shocked
+  file-print word "MaxHomelessPeriod," MaxHomelessPeriod
+  file-print word "BuyerSearchLength," BuyerSearchLength
+  file-print word "RealtorTerritory," RealtorTerritory
+  file-print word "Locality," Locality
+  file-print word "RealtorMemory," RealtorMemory
+  file-print word "PriceDropRate," PriceDropRate
+  file-print word "RealtorOptimism," RealtorOptimism
+  file-print word "InitialGeography," InitialGeography
+  file-print word "Density," Density
+  file-print word "HouseConstructionRate," HouseConstructionRate
+  file-print word "HouseMeanLifetime," HouseMeanLifetime
+  file-print word "MaxLoanToValue," MaxLoanToValue
+  file-print word "MortgageDuration," MortgageDuration
+  file-print word "StampDuty," StampDuty
+  file-close
+end
+
+to read-setttings-from-file
+carefully [
+    file-open loadfile
+  let a-line file-read-line
+  set Inflation item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set InterestRate item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set TicksPerYear item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set CycleStrength item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set Savings item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set Affordability item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set ExitRate item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set EntryRate item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set MeanIncome item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set Shocked item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set MaxHomelessPeriod item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set BuyerSearchLength item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set RealtorTerritory item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set Locality item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set RealtorMemory item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set PriceDropRate item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set RealtorOptimism item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set InitialGeography item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set Density item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set HouseConstructionRate item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set HouseMeanLifetime item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set MaxLoanToValue item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set MortgageDuration item 1 last csv:from-string a-line
+  set a-line file-read-line
+  set StampDuty item 1 last csv:from-string a-line
+    file-close]
+  [ print "file not found"]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -976,7 +1219,7 @@ ExitRate
 ExitRate
 0
 10
-2.0
+1.0
 1
 1
 %
@@ -991,10 +1234,10 @@ MeanIncome
 MeanIncome
 0
 100000
-30000.0
+5.0
 1000
 1
-� pa
+£ pa
 HORIZONTAL
 
 SLIDER
@@ -1006,7 +1249,7 @@ Shocked
 Shocked
 0
 100
-0.0
+10.0
 1
 1
 %
@@ -1021,7 +1264,7 @@ RealtorTerritory
 RealtorTerritory
 0
 50
-30.0
+0.0
 1
 1
 NIL
@@ -1036,7 +1279,7 @@ RealtorMemory
 RealtorMemory
 0
 10
-10.0
+3.0
 1
 1
 ticks
@@ -1050,7 +1293,7 @@ SLIDER
 Density
 Density
 0
-100
+90
 70.0
 1
 1
@@ -1062,7 +1305,7 @@ TEXTBOX
 8
 168
 36
-PwC Housing Market model version 1.5
+PwC Housing Market model version 1.66 (for NL 6.3.0)
 11
 104.0
 1
@@ -1085,10 +1328,10 @@ NIL
 1
 
 BUTTON
-600
-630
-680
-663
+601
+609
+681
+642
 Go
 go
 T
@@ -1110,7 +1353,7 @@ EntryRate
 EntryRate
 0
 10
-5.0
+2.0
 1
 1
 %
@@ -1125,7 +1368,7 @@ Locality
 Locality
 0
 10
-3.0
+30.0
 1
 1
 NIL
@@ -1151,11 +1394,11 @@ PENS
 "Sold" 1.0 0 -13345367 true "" ""
 
 PLOT
-1181
-10
-1491
-286
-Gini index House
+930
+250
+1170
+370
+Gini index
 time
 NIL
 0.0
@@ -1166,10 +1409,8 @@ true
 true
 "" ""
 PENS
-"area-BL" 1.0 0 -2674135 true "" ""
-"area-TL" 1.0 0 -11085214 true "" ""
-"area-BR" 1.0 0 -13345367 true "" ""
-"area-TR" 1.0 0 -7171555 true "" ""
+"Incomes" 1.0 0 -16777216 true "" ""
+"Prices" 1.0 0 -2674135 true "" ""
 
 PLOT
 930
@@ -1253,7 +1494,7 @@ PriceDropRate
 PriceDropRate
 0
 10
-3.0
+10.0
 1
 1
 %
@@ -1313,7 +1554,7 @@ BuyerSearchLength
 BuyerSearchLength
 0
 100
-10.0
+5.0
 1
 1
 NIL
@@ -1358,7 +1599,7 @@ InterestRate
 InterestRate
 1
 20
-3.0
+7.0
 0.1
 1
 % pa
@@ -1440,7 +1681,7 @@ PLOT
 930
 250
 House price distribution
-�
+£
 Number
 0.0
 1000000.0
@@ -1470,7 +1711,7 @@ PLOT
 1170
 250
 Income distribution
-�
+£
 Number
 0.0
 10000.0
@@ -1527,7 +1768,7 @@ MortgageDuration
 MortgageDuration
 0
 100
-25.0
+29.0
 1
 1
 years
@@ -1542,7 +1783,7 @@ Inflation
 Inflation
 0
 20
-1.7
+0.0
 0.1
 1
 % pa
@@ -1609,10 +1850,10 @@ StampDuty
 -1000
 
 BUTTON
-600
-675
-680
-708
+602
+648
+682
+681
 One Tick
 go
 NIL
@@ -1631,7 +1872,7 @@ PLOT
 1171
 735
 Capital
-�
+£
 Number
 0.0
 100000.0
@@ -1662,100 +1903,111 @@ Savings
 Savings
 0
 100
-50.0
+25.0
 1
 1
 %
 HORIZONTAL
 
-SWITCH
-377
-529
-518
-562
-ShowHouse
-ShowHouse
-0
-1
--1000
-
-SLIDER
-1274
-555
-1446
-588
-nRealtors
-nRealtors
-1
-20
-10.0
-1
-1
-NIL
-HORIZONTAL
-
-SWITCH
-1477
-562
-1595
-595
-grouped
-grouped
-0
-1
--1000
-
-TEXTBOX
-1278
+MONITOR
 605
-1502
-677
-Here is where you can change number of realtors and if they are grouped or not\n
-12
-0.0
+690
+685
+735
+Tick (secs.)
+stepTimer
+2
+1
+11
+
+BUTTON
+5
+715
+132
+748
+Save settings
+write-settings-to-file
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
 1
 
-SWITCH
-1278
-508
-1398
-541
-DoShock
-DoShock
+BUTTON
+145
+715
+272
+748
+Load settings
+read-setttings-from-file
+NIL
 1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+INPUTBOX
+5
+755
+125
+815
+savefile
+test.csv
+1
+0
+String
+
+INPUTBOX
+145
+755
+265
+815
+loadfile
+test.csv
+1
+0
+String
+
+INPUTBOX
+300
+755
+410
+815
+owner-data-file
+data/ownerdata.csv
+1
+0
+String
+
+SWITCH
+300
+715
+407
+748
+log-data
+log-data
+0
 1
 -1000
 
-TEXTBOX
-1407
-510
-1557
-540
-Turn off change in LoanToValue 
-12
-0.0
+INPUTBOX
+435
+755
+545
+815
+house-data-file
+data/housedata.csv
 1
-
-PLOT
-1490
-10
-1802
-286
-Gini index Income
-time
-NIL
-0.0
-10.0
-0.0
-1.0
-true
-true
-"" ""
-PENS
-"Incomes-BL" 1.0 0 -2674135 true "" ""
-"Incomes-TL" 1.0 0 -10899396 true "" ""
-"Incomes-BR" 1.0 0 -13345367 true "" ""
-"Incomes-TR" 1.0 0 -7171555 true "" ""
+0
+String
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -2103,5 +2355,5 @@ true
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
 @#$#@#$#@
-0
+1
 @#$#@#$#@

@@ -16,6 +16,9 @@ See README_Original for full description
 EHM-R looks to add a rental market and its aim is to "grow" a spatial heterogeneous housing landscape. 
 
 
+You will need to create your own data folder "data"
+this has been added to the .gitignore doc so that the repository does not get filed up with large data files
+
 ##HousingMarketModelRC01NG1.66
 Adds ability to save both data and settings
 
